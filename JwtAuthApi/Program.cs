@@ -31,8 +31,7 @@ builder.Services.AddScoped<JwtService>();
 var jwtSettings = builder.Configuration.GetSection("Jwt");
 
 // Read the secret key; stop the application if it is missing
-var secretKey = jwtSettings["SecretKey"]
-    ?? throw new InvalidOperationException("Jwt:SecretKey is not configured.");
+var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("Jwt:SecretKey is not configured.");
 
 // Convert the secret key into the format JWT uses to verify token signatures
 var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
