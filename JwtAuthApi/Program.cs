@@ -1,6 +1,7 @@
 using JwtAuthApi.Data;
 using JwtAuthApi.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
@@ -14,6 +15,34 @@ builder.Services.AddControllers();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(
         builder.Configuration.GetConnectionString("DefaultConnection")));
+
+
+// Register ASP.NET Core Identity's core user-management services.
+// Identity handles user creation, password hashing, and password validation.
+builder.Services
+    .AddIdentityCore<IdentityUser>(options =>
+    {
+        // Require passwords to contain at least 8 characters.
+        options.Password.RequiredLength = 8;
+
+        // Require a digit, such as 1 or 5.
+        options.Password.RequireDigit = true;
+
+        // Require at least one uppercase letter, such as A or B.
+        options.Password.RequireUppercase = true;
+
+        // Require at least one lowercase letter, such as a or b.
+        options.Password.RequireLowercase = true;
+
+        // Do not require special characters such as @ or #.
+        options.Password.RequireNonAlphanumeric = false;
+
+        // Usernames must be unique.
+        options.User.RequireUniqueEmail = false;
+    })
+    .AddRoles<IdentityRole>()
+    .AddEntityFrameworkStores<AppDbContext>();
+
 
 // Register JwtService so controllers can use it
 builder.Services.AddScoped<JwtService>();

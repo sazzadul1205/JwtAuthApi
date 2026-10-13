@@ -1,10 +1,9 @@
-﻿using JwtAuthApi.Data;
+﻿
 using JwtAuthApi.DTOs;
-using JwtAuthApi.Models;
 using JwtAuthApi.Services;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace JwtAuthApi.Controllers
 {
@@ -12,62 +11,53 @@ namespace JwtAuthApi.Controllers
     [ApiController]
     public class AuthController : ControllerBase
     {
-        private readonly AppDbContext _context;
+        private readonly UserManager<IdentityUser> _userManager;
         private readonly JwtService _jwtService;
 
         public AuthController(
-            AppDbContext context,
-            JwtService jwtService)
+            JwtService jwtService,
+            UserManager<IdentityUser> userManager)
         {
-            _context = context;
             _jwtService = jwtService;
+            _userManager = userManager;
         }
 
+        // Register a new user using ASP.NET Core Identity.
         [HttpPost("Register")]
         public async Task<IActionResult> Register([FromBody] RegisterRequest request)
         {
-            // Check whether the username is already registered
-            bool usernameExists = await _context.Users.AnyAsync(u => u.Username == request.Username);
-
-
-            // If User name Exsisit Return Conflict message 
-            if (usernameExists)
+            // Create a new Identity user.
+            var user = new IdentityUser
             {
-                // Sends a 409 Conflict Response 
-                return Conflict(new
-                {
-                    message = "Username is already taken."
-                });
-            }
-
-            // Hash the password before storing it
-            string passwordHash = BCrypt.Net.BCrypt.HashPassword(request.Password);
-            
-            // Create the database user
-            var user = new User
-            {
-                Username = request.Username,
-                PasswordHash = passwordHash,
-                CreatedAt = DateTime.UtcNow
+                UserName = request.Username
             };
 
-            _context.Users.Add(user);
-            await _context.SaveChangesAsync();
+            // Identity hashes the password and saves the user.
+            var result = await _userManager.CreateAsync(user,request.Password);
+
+            // Return validation errors if registration fails.
+            if (!result.Succeeded)
+            {
+                return BadRequest(new
+                {
+                    errors = result.Errors.Select(error => error.Description)
+                });
+            }
 
             return Ok(new
             {
                 message = "Registration successful."
             });
-
         }
 
+        // Authenticate a user and issue a JWT access token.
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
-            // Find the registered user
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == request.Username);
+            // Find the user by username.
+            var user = await _userManager.FindByNameAsync(request.Username);
 
-            // Reject unknown usernames
+            // Reject unknown usernames.
             if (user == null)
             {
                 return Unauthorized(new
@@ -76,10 +66,10 @@ namespace JwtAuthApi.Controllers
                 });
             }
 
-            // Verify the submitted password against its stored hash
-            bool passwordIsValid = BCrypt.Net.BCrypt.Verify(request.Password,user.PasswordHash);
+            // Verify the password using Identity.
+            bool passwordIsValid = await _userManager.CheckPasswordAsync(user,request.Password);
 
-            // Send the Same Message as the USername Rejection 
+            // Reject incorrect passwords.
             if (!passwordIsValid)
             {
                 return Unauthorized(new
@@ -88,9 +78,8 @@ namespace JwtAuthApi.Controllers
                 });
             }
 
-
-            // Generate a JWT for the authenticated user
-            var token = _jwtService.GenerateToken(request.Username);
+            // Generate a JWT for the authenticated user.
+            var token = _jwtService.GenerateToken(user.UserName!);
 
             return Ok(new
             {
@@ -99,64 +88,56 @@ namespace JwtAuthApi.Controllers
             });
         }
 
+        // Return the current user's profile using the JWT identity.
         [Authorize]
         [HttpGet("me")]
         public IActionResult Me()
         {
             var response = new UserProfileResponse
             {
-                // Get the User From the Token 
                 Username = User.Identity?.Name ?? string.Empty
             };
 
             return Ok(response);
         }
 
+        // Change the password of the authenticated user.
         [Authorize]
         [HttpPut("change-password")]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
         {
-            // Get the User From the Token 
+            // Read the username from the authenticated token.
             var username = User.Identity?.Name;
 
-            // If no User Found Send 401 
             if (username == null)
             {
                 return Unauthorized();
             }
 
-            // Get the User Data
-            var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+            // Find the corresponding Identity user.
+            var user = await _userManager.FindByNameAsync(username);
 
-            // If no User Found Send 401 
             if (user == null)
             {
                 return Unauthorized();
             }
 
-            // Varify Curent Password With DB Saved Password
-            bool currentPasswordIsValid = BCrypt.Net.BCrypt.Verify(request.CurrentPassword,user.PasswordHash);
+            // Verify the current password and set the new one.
+            var result = await _userManager.ChangePasswordAsync(user,request.CurrentPassword,request.NewPassword);
 
-            // If Varification Fails the send 400 and a Message 
-            if (!currentPasswordIsValid)
+            // Return errors if the password change fails.
+            if (!result.Succeeded)
             {
                 return BadRequest(new
                 {
-                    message = "Current password is incorrect."
+                    errors = result.Errors.Select(error => error.Description)
                 });
             }
-
-            // Hash the New Password
-            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
-
-            await _context.SaveChangesAsync();
 
             return Ok(new
             {
                 message = "Password changed successfully."
             });
-
         }
-
     }
 }
