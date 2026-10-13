@@ -2,6 +2,7 @@
 using JwtAuthApi.DTOs;
 using JwtAuthApi.Models;
 using JwtAuthApi.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -97,5 +98,65 @@ namespace JwtAuthApi.Controllers
                 tokenType = "Bearer"
             });
         }
+
+        [Authorize]
+        [HttpGet("me")]
+        public IActionResult Me()
+        {
+            var response = new UserProfileResponse
+            {
+                // Get the User From the Token 
+                Username = User.Identity?.Name ?? string.Empty
+            };
+
+            return Ok(response);
+        }
+
+        [Authorize]
+        [HttpPut("change-password")]
+        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request)
+        {
+            // Get the User From the Token 
+            var username = User.Identity?.Name;
+
+            // If no User Found Send 401 
+            if (username == null)
+            {
+                return Unauthorized();
+            }
+
+            // Get the User Data
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+
+            // If no User Found Send 401 
+            if (user == null)
+            {
+                return Unauthorized();
+            }
+
+            // Varify Curent Password With DB Saved Password
+            bool currentPasswordIsValid = BCrypt.Net.BCrypt.Verify(request.CurrentPassword,user.PasswordHash);
+
+            // If Varification Fails the send 400 and a Message 
+            if (!currentPasswordIsValid)
+            {
+                return BadRequest(new
+                {
+                    message = "Current password is incorrect."
+                });
+            }
+
+            // Hash the New Password
+            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+
+            await _context.SaveChangesAsync();
+
+            return Ok(new
+            {
+                message = "Password changed successfully."
+            });
+
+        }
+
     }
 }
